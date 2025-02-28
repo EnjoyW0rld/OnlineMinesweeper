@@ -31,8 +31,10 @@ public class CellGrid
         int width = Width;
         int height = Height;
 
+        int iterations = 0;
         for (int i = 0; i < amount; i++)
         {
+
             int x = Random.Range(0, width);
             int y = Random.Range(0, height);
 
@@ -40,6 +42,8 @@ public class CellGrid
 
             while (cell.type == Cell.Type.Mine || IsAdjacent(startingCell, cell))
             {
+                iterations++;
+                if(iterations > 5000) return;
                 x++;
 
                 if (x >= width)
@@ -47,7 +51,8 @@ public class CellGrid
                     x = 0;
                     y++;
 
-                    if (y >= height) {
+                    if (y >= height)
+                    {
                         y = 0;
                     }
                 }
@@ -70,7 +75,8 @@ public class CellGrid
             {
                 Cell cell = cells[x, y];
 
-                if (cell.type == Cell.Type.Mine) {
+                if (cell.type == Cell.Type.Mine)
+                {
                     continue;
                 }
 
@@ -88,14 +94,16 @@ public class CellGrid
         {
             for (int adjacentY = -1; adjacentY <= 1; adjacentY++)
             {
-                if (adjacentX == 0 && adjacentY == 0) {
+                if (adjacentX == 0 && adjacentY == 0)
+                {
                     continue;
                 }
 
                 int x = cell.position.x + adjacentX;
                 int y = cell.position.y + adjacentY;
 
-                if (TryGetCell(x, y, out Cell adjacent) && adjacent.type == Cell.Type.Mine) {
+                if (TryGetCell(x, y, out Cell adjacent) && adjacent.type == Cell.Type.Mine)
+                {
                     count++;
                 }
             }
@@ -112,14 +120,16 @@ public class CellGrid
         {
             for (int adjacentY = -1; adjacentY <= 1; adjacentY++)
             {
-                if (adjacentX == 0 && adjacentY == 0) {
+                if (adjacentX == 0 && adjacentY == 0)
+                {
                     continue;
                 }
 
                 int x = cell.position.x + adjacentX;
                 int y = cell.position.y + adjacentY;
 
-                if (TryGetCell(x, y, out Cell adjacent) && !adjacent.revealed && adjacent.flagged) {
+                if (TryGetCell(x, y, out Cell adjacent) && !adjacent.revealed && adjacent.flagged)
+                {
                     count++;
                 }
             }
@@ -127,12 +137,20 @@ public class CellGrid
 
         return count;
     }
-
+    public Cell GetRandomCell()
+    {
+        int x = Random.Range(0, cells.GetLength(0));
+        int y = Random.Range(0, cells.GetLength(1));
+        return cells[x,y];
+    }
     public Cell GetCell(int x, int y)
     {
-        if (InBounds(x, y)) {
+        if (InBounds(x, y))
+        {
             return cells[x, y];
-        } else {
+        }
+        else
+        {
             return null;
         }
     }

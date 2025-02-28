@@ -1,4 +1,6 @@
+using System;
 using System.Collections;
+using UnityEditor;
 using UnityEngine;
 
 [DefaultExecutionOrder(-1)]
@@ -8,10 +10,11 @@ public class Game : MonoBehaviour
     public int height = 16;
     public int mineCount = 32;
 
-    private Board board;
-    private CellGrid grid;
-    private bool gameover;
-    private bool generated;
+    private Board _board;
+    private CellGrid _grid;
+    private bool _gameover = true;
+    private bool _generated;
+    private int _seed;
 
     private void OnValidate()
     {
@@ -21,64 +24,89 @@ public class Game : MonoBehaviour
     private void Awake()
     {
         Application.targetFrameRate = 60;
-        board = GetComponentInChildren<Board>();
+        _board = GetComponentInChildren<Board>();
     }
-
     private void Start()
     {
-        NewGame();
+        FindObjectOfType<MouseControlls>().OnSingleClick.AddListener(() =>
+        {
+            if(!_gameover) LocalReveal();
+        });
     }
-
-    private void NewGame()
+    public void Initialize(int pWidth, int pHeight, int pMines, int pSeed)
+    {
+        width = pWidth;
+        height = pHeight;
+        mineCount = pMines;
+        _seed = pSeed;
+    }
+    public void NewGame()
     {
         StopAllCoroutines();
 
+        UnityEngine.Random.InitState(_seed);
+
         Camera.main.transform.position = new Vector3(width / 2f, height / 2f, -10f);
 
-        gameover = false;
-        generated = false;
+        _gameover = false;
+        _generated = false;
 
-        grid = new CellGrid(width, height);
-        board.Draw(grid);
+        _grid = new CellGrid(width, height);
+        _board.Draw(_grid);
+
+        if (!_generated)
+        {
+            _grid.GenerateMines(_grid.GetRandomCell(), mineCount);
+            _grid.GenerateNumbers();
+            _generated = true;
+        }
     }
 
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.N) || Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space))
+        /*if (Input.GetKeyDown(KeyCode.N) || Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space))
         {
             NewGame();
             return;
-        }
+        }*/
 
-        if (!gameover)
+        if (!_gameover)
         {
-            if (Input.GetMouseButtonDown(0)) {
-                Reveal();
-            } else if (Input.GetMouseButtonDown(1)) {
-                Flag();
-            } else if (Input.GetMouseButton(2)) {
+            /*if (Input.GetMouseButtonDown(0))
+            {
+                LocalReveal();
+            }*/
+            if (Input.GetMouseButtonDown(1))
+            {
+                LocalFlag();
+            }
+            else if (Input.GetMouseButton(2))
+            {
                 Chord();
-            } else if (Input.GetMouseButtonUp(2)) {
+            }
+            else if (Input.GetMouseButtonUp(2))
+            {
                 Unchord();
             }
         }
     }
 
-    private void Reveal()
+    public void Reveal(int px, int py)
     {
-        if (TryGetCellAtMousePosition(out Cell cell))
+        if (_grid.TryGetCell(px, py, out Cell cell))
         {
-            if (!generated)
-            {
-                grid.GenerateMines(cell, mineCount);
-                grid.GenerateNumbers();
-                generated = true;
-            }
-
             Reveal(cell);
         }
     }
 
+    private void LocalReveal()
+    {
+        if (TryGetCellAtMousePosition(out Cell cell, out int[] xy))
+        {
+            if (ServerBehaviour.IsThisUserServer) Reveal(cell);
+            SendReveal(xy[0], xy[1]);
+        }
+    }
     private void Reveal(Cell cell)
     {
         if (cell.revealed) return;
@@ -101,44 +129,78 @@ public class Game : MonoBehaviour
                 break;
         }
 
-        board.Draw(grid);
+        _board.Draw(_grid);
+    }
+    private void SendReveal(int x, int y)
+    {
+        CellNetworkContainer cont = new CellNetworkContainer(CellNetworkContainer.Instructions.Reveal);
+        cont.x = x;
+        cont.y = y;
+        NetworkPacket packet = new NetworkPacket();
+        packet.Write(cont);
+        if (ServerBehaviour.IsThisUserServer) ServerBehaviour.Instance.ScheduleMessage(packet);
+        else ClientBehaviour.Instance.SchedulePackage(packet);
     }
 
     private IEnumerator Flood(Cell cell)
     {
-        if (gameover) yield break;
+        if (_gameover) yield break;
         if (cell.revealed) yield break;
         if (cell.type == Cell.Type.Mine) yield break;
 
         cell.revealed = true;
-        board.Draw(grid);
+        _board.Draw(_grid);
 
         yield return null;
 
         if (cell.type == Cell.Type.Empty)
         {
-            if (grid.TryGetCell(cell.position.x - 1, cell.position.y, out Cell left)) {
+            if (_grid.TryGetCell(cell.position.x - 1, cell.position.y, out Cell left))
+            {
                 StartCoroutine(Flood(left));
             }
-            if (grid.TryGetCell(cell.position.x + 1, cell.position.y, out Cell right)) {
+            if (_grid.TryGetCell(cell.position.x + 1, cell.position.y, out Cell right))
+            {
                 StartCoroutine(Flood(right));
             }
-            if (grid.TryGetCell(cell.position.x, cell.position.y - 1, out Cell down)) {
+            if (_grid.TryGetCell(cell.position.x, cell.position.y - 1, out Cell down))
+            {
                 StartCoroutine(Flood(down));
             }
-            if (grid.TryGetCell(cell.position.x, cell.position.y + 1, out Cell up)) {
+            if (_grid.TryGetCell(cell.position.x, cell.position.y + 1, out Cell up))
+            {
                 StartCoroutine(Flood(up));
             }
         }
     }
 
-    private void Flag()
+    public void Flag(int px, int py)
     {
-        if (!TryGetCellAtMousePosition(out Cell cell)) return;
+        if (_grid.TryGetCell(px, py, out Cell cell))
+        {
+            if (cell.revealed) return;
+            cell.flagged = !cell.flagged;
+            _board.Draw(_grid);
+        }
+    }
+    private void LocalFlag()
+    {
+        if (!TryGetCellAtMousePosition(out Cell cell, out int[] xy)) return;
         if (cell.revealed) return;
 
-        cell.flagged = !cell.flagged;
-        board.Draw(grid);
+        CellNetworkContainer cont = new CellNetworkContainer(CellNetworkContainer.Instructions.Flag);
+        cont.x = xy[0];
+        cont.y = xy[1];
+        NetworkPacket packet = new NetworkPacket();
+        packet.Write(cont);
+        if (ServerBehaviour.IsThisUserServer) Flag(cont.x, cont.y);
+
+        if (ServerBehaviour.IsThisUserServer) ServerBehaviour.Instance.ScheduleMessage(packet);
+        else ClientBehaviour.Instance.SchedulePackage(packet);
+
+
+        //cell.flagged = !cell.flagged;
+        //board.Draw(grid);
     }
 
     private void Chord()
@@ -148,7 +210,7 @@ public class Game : MonoBehaviour
         {
             for (int y = 0; y < height; y++)
             {
-                grid[x, y].chorded = false;
+                _grid[x, y].chorded = false;
             }
         }
 
@@ -162,14 +224,15 @@ public class Game : MonoBehaviour
                     int x = chord.position.x + adjacentX;
                     int y = chord.position.y + adjacentY;
 
-                    if (grid.TryGetCell(x, y, out Cell cell)) {
+                    if (_grid.TryGetCell(x, y, out Cell cell))
+                    {
                         cell.chorded = !cell.revealed && !cell.flagged;
                     }
                 }
             }
         }
 
-        board.Draw(grid);
+        _board.Draw(_grid);
     }
 
     private void Unchord()
@@ -178,15 +241,16 @@ public class Game : MonoBehaviour
         {
             for (int y = 0; y < height; y++)
             {
-                Cell cell = grid[x, y];
+                Cell cell = _grid[x, y];
 
-                if (cell.chorded) {
+                if (cell.chorded)
+                {
                     Unchord(cell);
                 }
             }
         }
 
-        board.Draw(grid);
+        _board.Draw(_grid);
     }
 
     private void Unchord(Cell chord)
@@ -197,18 +261,19 @@ public class Game : MonoBehaviour
         {
             for (int adjacentY = -1; adjacentY <= 1; adjacentY++)
             {
-                if (adjacentX == 0 && adjacentY == 0) {
+                if (adjacentX == 0 && adjacentY == 0)
+                {
                     continue;
                 }
 
                 int x = chord.position.x + adjacentX;
                 int y = chord.position.y + adjacentY;
 
-                if (grid.TryGetCell(x, y, out Cell cell))
+                if (_grid.TryGetCell(x, y, out Cell cell))
                 {
                     if (cell.revealed && cell.type == Cell.Type.Number)
                     {
-                        if (grid.CountAdjacentFlags(cell) >= cell.number)
+                        if (_grid.CountAdjacentFlags(cell) >= cell.number)
                         {
                             Reveal(chord);
                             return;
@@ -221,7 +286,7 @@ public class Game : MonoBehaviour
 
     private void Explode(Cell cell)
     {
-        gameover = true;
+        _gameover = true;
 
         // Set the mine as exploded
         cell.exploded = true;
@@ -232,9 +297,10 @@ public class Game : MonoBehaviour
         {
             for (int y = 0; y < height; y++)
             {
-                cell = grid[x, y];
+                cell = _grid[x, y];
 
-                if (cell.type == Cell.Type.Mine) {
+                if (cell.type == Cell.Type.Mine)
+                {
                     cell.revealed = true;
                 }
             }
@@ -247,36 +313,45 @@ public class Game : MonoBehaviour
         {
             for (int y = 0; y < height; y++)
             {
-                Cell cell = grid[x, y];
+                Cell cell = _grid[x, y];
 
                 // All non-mine cells must be revealed to have won
-                if (cell.type != Cell.Type.Mine && !cell.revealed) {
+                if (cell.type != Cell.Type.Mine && !cell.revealed)
+                {
                     return; // no win
                 }
             }
         }
 
-        gameover = true;
+        _gameover = true;
 
         // Flag all the mines
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
-                Cell cell = grid[x, y];
+                Cell cell = _grid[x, y];
 
-                if (cell.type == Cell.Type.Mine) {
+                if (cell.type == Cell.Type.Mine)
+                {
                     cell.flagged = true;
                 }
             }
         }
     }
 
+    private bool TryGetCellAtMousePosition(out Cell cell, out int[] xy)
+    {
+        Vector3 worldPosition = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        Vector3Int cellPosition = _board.tilemap.WorldToCell(worldPosition);
+        xy = new int[] { cellPosition.x, cellPosition.y };
+        return _grid.TryGetCell(cellPosition.x, cellPosition.y, out cell);
+    }
     private bool TryGetCellAtMousePosition(out Cell cell)
     {
         Vector3 worldPosition = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-        Vector3Int cellPosition = board.tilemap.WorldToCell(worldPosition);
-        return grid.TryGetCell(cellPosition.x, cellPosition.y, out cell);
+        Vector3Int cellPosition = _board.tilemap.WorldToCell(worldPosition);
+        return _grid.TryGetCell(cellPosition.x, cellPosition.y, out cell);
     }
 
 }
